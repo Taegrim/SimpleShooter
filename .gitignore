@@ -1,0 +1,42 @@
+# Unreal Engine generated folders
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+Build/
+
+# Visual Studio / Rider / IDE files
+.vs/
+.idea/
+*.sln
+*.suo
+*.opensdf
+*.sdf
+*.VC.db
+*.VC.opendb
+.vscode/
+
+# Rider
+*.sln.DotSettings.user
+
+# User-specific files
+*.user
+*.userosscache
+*.suo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Unreal generated files
+*.log
+*.tmp
+
+# Plugin generated binaries/intermediate
+Plugins/*/Binaries/
+Plugins/*/Intermediate/
+
+# 프로젝트에 IDE 플러그인 설치되어있다면 무시
+Plugins/Developer/RiderLink/
+Plugins/RiderLink/
+Plugins/VisualStudioTools/
