@@ -7,6 +7,7 @@
 #include "Logging/LogMacros.h"
 #include "SimpleShooterCharacter.generated.h"
 
+class ABaseGun;
 class USpringArmComponent;
 class UCameraComponent;
 class UInputMappingContext;
@@ -27,7 +28,7 @@ class ASimpleShooterCharacter : public ACharacter
 	/** Follow camera */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Camera, meta = (AllowPrivateAccess = "true"))
 	UCameraComponent* FollowCamera;
-	
+
 	/** MappingContext */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
 	UInputMappingContext* DefaultMappingContext;
@@ -44,9 +45,33 @@ class ASimpleShooterCharacter : public ACharacter
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
 	UInputAction* LookAction;
 
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
+    UInputAction* FireAction;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
+    UInputAction* ReloadAction;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
+    UInputAction* EquipWeaponSlot1Action;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
+    UInputAction* EquipWeaponSlot2Action;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Gun", meta = (AllowPrivateAccess = "true"))
+    TArray<TSubclassOf<ABaseGun>> GunClasses;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Gun", meta = (AllowPrivateAccess = "true"))
+    FName WeaponSocketName = TEXT("WeaponSocket");
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Gun", meta = (AllowPrivateAccess = "true"))
+    TArray<TObjectPtr<ABaseGun>> Guns;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Gun", meta = (AllowPrivateAccess = "true"))
+    TObjectPtr<ABaseGun> CurrentGun;
+
 public:
 	ASimpleShooterCharacter();
-	
+
 
 protected:
 
@@ -55,9 +80,18 @@ protected:
 
 	/** Called for looking input */
 	void Look(const FInputActionValue& Value);
-			
+
+    void Fire();
+    void Reload();
+    void EquipWeaponSlot1();
+    void EquipWeaponSlot2();
+    void EquipGunByIndex(int32 Index);
+    void SpawnGuns();
+    void AttachGunToHand(ABaseGun* Gun);
 
 protected:
+
+    virtual void BeginPlay() override;
 
 	virtual void NotifyControllerChanged() override;
 

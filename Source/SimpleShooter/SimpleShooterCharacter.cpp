@@ -1,6 +1,8 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "SimpleShooterCharacter.h"
+
+#include "BaseGun.h"
 #include "Engine/LocalPlayer.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
@@ -20,14 +22,14 @@ ASimpleShooterCharacter::ASimpleShooterCharacter()
 {
 	// Set size for collision capsule
 	GetCapsuleComponent()->InitCapsuleSize(42.f, 96.0f);
-		
+
 	// Don't rotate when the controller rotates. Let that just affect the camera.
 	bUseControllerRotationPitch = false;
 	bUseControllerRotationYaw = false;
 	bUseControllerRotationRoll = false;
 
 	// Configure character movement
-	GetCharacterMovement()->bOrientRotationToMovement = true; // Character moves in the direction of input...	
+	GetCharacterMovement()->bOrientRotationToMovement = true; // Character moves in the direction of input...
 	GetCharacterMovement()->RotationRate = FRotator(0.0f, 500.0f, 0.0f); // ...at this rotation rate
 
 	// Note: For faster iteration times these variables, and many more, can be tweaked in the Character Blueprint
@@ -42,7 +44,7 @@ ASimpleShooterCharacter::ASimpleShooterCharacter()
 	// Create a camera boom (pulls in towards the player if there is a collision)
 	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
 	CameraBoom->SetupAttachment(RootComponent);
-	CameraBoom->TargetArmLength = 400.0f; // The camera follows at this distance behind the character	
+	CameraBoom->TargetArmLength = 400.0f; // The camera follows at this distance behind the character
 	CameraBoom->bUsePawnControlRotation = true; // Rotate the arm based on the controller
 
 	// Create a follow camera
@@ -50,12 +52,20 @@ ASimpleShooterCharacter::ASimpleShooterCharacter()
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName); // Attach the camera to the end of the boom and let the boom adjust to match the controller orientation
 	FollowCamera->bUsePawnControlRotation = false; // Camera does not rotate relative to arm
 
-	// Note: The skeletal mesh and anim blueprint references on the Mesh component (inherited from Character) 
+	// Note: The skeletal mesh and anim blueprint references on the Mesh component (inherited from Character)
 	// are set in the derived blueprint asset named ThirdPersonCharacter (to avoid direct content references in C++)
 }
 
 //////////////////////////////////////////////////////////////////////////
 // Input
+
+void ASimpleShooterCharacter::BeginPlay()
+{
+    Super::BeginPlay();
+
+    SpawnGuns();
+    EquipWeaponSlot1();
+}
 
 void ASimpleShooterCharacter::NotifyControllerChanged()
 {
@@ -75,7 +85,7 @@ void ASimpleShooterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerI
 {
 	// Set up action bindings
 	if (UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(PlayerInputComponent)) {
-		
+
 		// Jumping
 		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Started, this, &ACharacter::Jump);
 		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Completed, this, &ACharacter::StopJumping);
@@ -85,6 +95,27 @@ void ASimpleShooterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerI
 
 		// Looking
 		EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &ASimpleShooterCharacter::Look);
+
+	    if (FireAction)
+	    {
+	        EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Triggered,
+	            this, &ASimpleShooterCharacter::Fire);
+	    }
+	    if (ReloadAction)
+	    {
+	        EnhancedInputComponent->BindAction(ReloadAction, ETriggerEvent::Started,
+                            this, &ASimpleShooterCharacter::Reload);
+	    }
+	    if (EquipWeaponSlot1Action)
+	    {
+	        EnhancedInputComponent->BindAction(EquipWeaponSlot1Action, ETriggerEvent::Started,
+                this, &ASimpleShooterCharacter::EquipWeaponSlot1);
+	    }
+	    if (EquipWeaponSlot2Action)
+	    {
+	        EnhancedInputComponent->BindAction(EquipWeaponSlot2Action, ETriggerEvent::Started,
+                this, &ASimpleShooterCharacter::EquipWeaponSlot2);
+	    }
 	}
 	else
 	{
@@ -105,11 +136,11 @@ void ASimpleShooterCharacter::Move(const FInputActionValue& Value)
 
 		// get forward vector
 		const FVector ForwardDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
-	
-		// get right vector 
+
+		// get right vector
 		const FVector RightDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
 
-		// add movement 
+		// add movement
 		AddMovementInput(ForwardDirection, MovementVector.Y);
 		AddMovementInput(RightDirection, MovementVector.X);
 	}
@@ -126,4 +157,92 @@ void ASimpleShooterCharacter::Look(const FInputActionValue& Value)
 		AddControllerYawInput(LookAxisVector.X);
 		AddControllerPitchInput(LookAxisVector.Y);
 	}
+}
+
+void ASimpleShooterCharacter::Fire()
+{
+    if (CurrentGun)
+    {
+        CurrentGun->Fire();
+    }
+}
+
+void ASimpleShooterCharacter::Reload()
+{
+    if (CurrentGun)
+    {
+        CurrentGun->Reload();
+    }
+}
+
+void ASimpleShooterCharacter::EquipWeaponSlot1()
+{
+    EquipGunByIndex(0);
+}
+
+void ASimpleShooterCharacter::EquipWeaponSlot2()
+{
+    EquipGunByIndex(1);
+}
+
+void ASimpleShooterCharacter::EquipGunByIndex(int32 Index)
+{
+    // 인덱스 유효성 검사, 총기 유효성 검사
+    if (!Guns.IsValidIndex(Index) || !Guns[Index]) return;
+
+    // 바꾸려는 총이 현재 총이라면 빠져나옴
+    if (CurrentGun == Guns[Index]) return;
+
+    // 현재 총기 비활성화
+    if (CurrentGun)
+    {
+        CurrentGun->SetActorHiddenInGame(true);
+        CurrentGun->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+    }
+
+    CurrentGun = Guns[Index];
+
+    CurrentGun->SetActorHiddenInGame(false);
+    AttachGunToHand(CurrentGun.Get());
+}
+
+void ASimpleShooterCharacter::SpawnGuns()
+{
+    Guns.Reset();
+
+    // 스폰 파라미터 설정
+    // 소유자, 행동 유발자를 나로 설정, 충돌이 있어도 항상 생성되게 함
+    FActorSpawnParameters SpawnParams;
+    SpawnParams.Owner = this;
+    SpawnParams.Instigator = this;
+    SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+    for (const TSubclassOf<ABaseGun>& GunClass : GunClasses)
+    {
+        if (GunClass)
+        {
+            ABaseGun* Gun = GetWorld() ?
+                GetWorld()->SpawnActor<ABaseGun>(GunClass, GetActorTransform(), SpawnParams) :
+                nullptr;
+
+            if (Gun)
+            {
+                Gun->SetActorHiddenInGame(true);
+                Gun->SetActorEnableCollision(false);
+            }
+
+            Guns.Add(Gun);
+        }
+    }
+}
+
+void ASimpleShooterCharacter::AttachGunToHand(ABaseGun* Gun)
+{
+    if (!Gun) return;
+
+    Gun->AttachToComponent(
+        GetMesh(),
+        FAttachmentTransformRules::SnapToTargetNotIncludingScale,
+        WeaponSocketName
+        );
 }
