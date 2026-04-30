@@ -12,6 +12,7 @@
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "InputActionValue.h"
+#include "Animation/AnimInstance.h"
 
 DEFINE_LOG_CATEGORY(LogTemplateCharacter);
 
@@ -52,8 +53,17 @@ ASimpleShooterCharacter::ASimpleShooterCharacter()
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName); // Attach the camera to the end of the boom and let the boom adjust to match the controller orientation
 	FollowCamera->bUsePawnControlRotation = false; // Camera does not rotate relative to arm
 
+    bIsReloading = false;
 	// Note: The skeletal mesh and anim blueprint references on the Mesh component (inherited from Character)
 	// are set in the derived blueprint asset named ThirdPersonCharacter (to avoid direct content references in C++)
+}
+
+void ASimpleShooterCharacter::ApplyReload()
+{
+    if (CurrentGun && bIsReloading)
+    {
+        CurrentGun->Reload();
+    }
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -161,6 +171,8 @@ void ASimpleShooterCharacter::Look(const FInputActionValue& Value)
 
 void ASimpleShooterCharacter::Fire()
 {
+    if (bIsReloading) return;
+
     if (CurrentGun)
     {
         CurrentGun->Fire();
@@ -169,9 +181,35 @@ void ASimpleShooterCharacter::Fire()
 
 void ASimpleShooterCharacter::Reload()
 {
+    if (bIsReloading) return;
+
     if (CurrentGun)
     {
-        CurrentGun->Reload();
+        if (UAnimMontage* ReloadAnim = CurrentGun->GetReloadAnim())
+        {
+            bIsReloading = true;
+            float Duration = PlayAnimMontage(ReloadAnim);
+
+            // 애니메이션 재생 실패하면 빠져나옴
+            if (Duration <= 0.f)
+            {
+                bIsReloading = false;
+                return;
+            }
+
+            // 재장전 애니메이션 끝날 때 호출할 함수 바인딩
+            UAnimInstance* AnimInstance = GetMesh() ? GetMesh()->GetAnimInstance() : nullptr;
+            if (!AnimInstance)
+            {
+                bIsReloading = false;
+                return;
+            }
+
+            FOnMontageEnded EndDelegate;
+            EndDelegate.BindUObject(this, &ASimpleShooterCharacter::OnReloadMontageEnded);
+
+            AnimInstance->Montage_SetEndDelegate(EndDelegate, ReloadAnim);
+        }
     }
 }
 
@@ -187,6 +225,8 @@ void ASimpleShooterCharacter::EquipWeaponSlot2()
 
 void ASimpleShooterCharacter::EquipGunByIndex(int32 Index)
 {
+    if (bIsReloading) return;
+
     // 인덱스 유효성 검사, 총기 유효성 검사
     if (!Guns.IsValidIndex(Index) || !Guns[Index]) return;
 
@@ -211,7 +251,8 @@ void ASimpleShooterCharacter::SpawnGuns()
     Guns.Reset();
 
     // 스폰 파라미터 설정
-    // 소유자, 행동 유발자를 나로 설정, 충돌이 있어도 항상 생성되게 함
+    // 소유자, 행동 유발자를 나로 설정
+    // 충돌이 있어도 항상 생성되게 함
     FActorSpawnParameters SpawnParams;
     SpawnParams.Owner = this;
     SpawnParams.Instigator = this;
@@ -229,9 +270,11 @@ void ASimpleShooterCharacter::SpawnGuns()
             {
                 Gun->SetActorHiddenInGame(true);
                 Gun->SetActorEnableCollision(false);
-            }
 
-            Guns.Add(Gun);
+                Gun->OnGunRecoil.AddDynamic(this, &ASimpleShooterCharacter::OnRecoil);
+
+                Guns.Add(Gun);
+            }
         }
     }
 }
@@ -245,4 +288,32 @@ void ASimpleShooterCharacter::AttachGunToHand(ABaseGun* Gun)
         FAttachmentTransformRules::SnapToTargetNotIncludingScale,
         WeaponSocketName
         );
+}
+
+// 사격 시 반동적용을 위해 호출되는 함수
+void ASimpleShooterCharacter::OnRecoil(const FGunRecoilData& RecoilData)
+{
+    if (!GetMesh()) return;
+
+    UAnimInstance* AnimInstace = GetMesh()->GetAnimInstance();
+    if (!AnimInstace) return;
+
+    UFunction* AddRecoilFunction = AnimInstace->FindFunction(TEXT("AddRecoil"));
+    if (!AddRecoilFunction) return;
+
+    struct FAddRecoilParams
+    {
+        FGunRecoilData RecoilData;
+    };
+
+    FAddRecoilParams Params;
+    Params.RecoilData = RecoilData;
+
+    AnimInstace->ProcessEvent(AddRecoilFunction, &Params);
+}
+
+// 장전 애니메이션이 끝나고 호출되는 함수
+void ASimpleShooterCharacter::OnReloadMontageEnded(UAnimMontage* Montage, bool bInterrupted)
+{
+    bIsReloading = false;
 }

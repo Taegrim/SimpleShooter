@@ -12,6 +12,4 @@ class SIMPLESHOOTER_API ARifle : public ABaseGun
 public:
     ARifle();
 
-protected:
-    virtual void OnFire() override;
 };

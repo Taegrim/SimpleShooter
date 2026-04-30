@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
 #include "Logging/LogMacros.h"
+#include "GunRecoilData.h"
 #include "SimpleShooterCharacter.generated.h"
 
 class ABaseGun;
@@ -72,9 +73,10 @@ class ASimpleShooterCharacter : public ACharacter
 public:
 	ASimpleShooterCharacter();
 
+    UFUNCTION(BlueprintCallable)
+    void ApplyReload();
 
 protected:
-
 	/** Called for movement input */
 	void Move(const FInputActionValue& Value);
 
@@ -89,8 +91,14 @@ protected:
     void SpawnGuns();
     void AttachGunToHand(ABaseGun* Gun);
 
-protected:
+    //
+    UFUNCTION()
+    void OnRecoil(const FGunRecoilData& RecoilData);
 
+    UFUNCTION()
+    void OnReloadMontageEnded(UAnimMontage* Montage, bool bInterrupted);
+
+protected:
     virtual void BeginPlay() override;
 
 	virtual void NotifyControllerChanged() override;
@@ -102,5 +110,8 @@ public:
 	FORCEINLINE class USpringArmComponent* GetCameraBoom() const { return CameraBoom; }
 	/** Returns FollowCamera subobject **/
 	FORCEINLINE class UCameraComponent* GetFollowCamera() const { return FollowCamera; }
+
+private:
+    bool bIsReloading;
 };
 

@@ -3,6 +3,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "NiagaraSystem.h"
 #include "NiagaraFunctionLibrary.h"
+#include "DrawDebugHelpers.h"
 
 ABaseGun::ABaseGun()
 {
@@ -14,11 +15,12 @@ ABaseGun::ABaseGun()
 	StaticMesh = CreateDefaultSubobject<UStaticMeshComponent>("StaticMesh");
 	StaticMesh->SetupAttachment(Scene);
 
-    LastFireTime = 0;
+    LastFireTime = -1000.f;
     MuzzleFlash = nullptr;
     FireSound = nullptr;
-    ReloadSound = nullptr;
     MuzzleSocketName = TEXT("Muzzle");
+    ReloadAnim = nullptr;
+    MuzzleFlashRotationOffset = FRotator(0.f, -90.f, 0.f);
 }
 
 void ABaseGun::Fire()
@@ -30,7 +32,8 @@ void ABaseGun::Fire()
 
     PlayMuzzleFlash();
     PlayFireSound();
-    ApplyRecoil();
+
+    BroadcastRecoil();
 
     OnFire();
 }
@@ -40,20 +43,19 @@ void ABaseGun::Reload()
     RemainingAmmo = MaxAmmo;
 
     PlayReloadSound();
-
-	UE_LOG(LogTemp, Warning, TEXT("Reload"));
 }
 
 void ABaseGun::PlayMuzzleFlash()
 {
     if (MuzzleFlash && StaticMesh)
     {
+        // 나이아가라 이펙트가 회전이 달라서 오프셋을 적용해야 함
         UNiagaraFunctionLibrary::SpawnSystemAttached(
             MuzzleFlash,
             StaticMesh,
             MuzzleSocketName,
             FVector::ZeroVector,
-            FRotator::ZeroRotator,
+            MuzzleFlashRotationOffset,
             EAttachLocation::SnapToTarget,
             true
             );
@@ -93,10 +95,79 @@ void ABaseGun::BeginPlay()
     RemainingAmmo = MaxAmmo;
 }
 
-// 디버그용, 자식 클래스에서 실제 처리해야함
+// 공용 사격 처리 함수, LineTrace 한번 호출함
 void ABaseGun::OnFire()
 {
-    UE_LOG(LogTemp, Warning, TEXT("Base OnFire"));
+    FireLineTrace(GetMuzzleLocation(), GetMuzzleForwardVector());
+}
+
+// 연결한 모든 액터에 반동을 처리하라고 알리는 함수
+void ABaseGun::BroadcastRecoil()
+{
+    OnGunRecoil.Broadcast(RecoilData);
+}
+
+void ABaseGun::FireLineTrace(const FVector& Start, const FVector& Direction)
+{
+    UWorld* World = GetWorld();
+    if (!World) return;
+
+    constexpr float TraceDistance = 10000.f;
+
+    FVector End = Start + Direction * TraceDistance;
+
+    // 자기자신 충돌 무시, 복잡한 충돌 false
+    FCollisionQueryParams Params;
+    Params.bTraceComplex = false;
+    Params.AddIgnoredActor(this);
+
+    // 총기 발사한 사람도 충돌 무시
+    if (AActor* GunOwner = GetOwner())
+    {
+        Params.AddIgnoredActor(GunOwner);
+    }
+
+    FHitResult HitResult;
+    const bool bHit = World->LineTraceSingleByChannel(
+        HitResult,
+        Start,
+        End,
+        ECC_Visibility,
+        Params
+        );
+
+    // 충돌했다면 충돌 지점까지가 디버그 라인 끝
+    const FVector DebugEnd = bHit ? HitResult.ImpactPoint : End;
+    DrawDebugLine(
+        World,
+        Start,
+        DebugEnd,
+        FColor::Green,
+        false,
+        1.0f,
+        0,
+        1.5f
+    );
+
+    // 충돌 처리
+    if (bHit)
+    {
+        DrawDebugPoint(
+            World,
+            HitResult.ImpactPoint,
+            12.f,
+            FColor::Red,
+            false,
+            1.f
+            );
+
+        // 이후에 ApplyDamage 처리
+    }
+}
+
+UAnimMontage* ABaseGun::GetReloadAnim() const
+{
+    return ReloadAnim;
 }
 
 bool ABaseGun::CanFire() const
@@ -116,22 +187,22 @@ bool ABaseGun::CanFire() const
 	return true;
 }
 
-// 반동 적용하는 함수
-void ABaseGun::ApplyRecoil()
+FTransform ABaseGun::GetMuzzleTransform() const
 {
-    // Player Spawn할때 Instigator 설정하므로 가져올 수 있음
-    APawn* OwningPawn = GetInstigator();
-    if (!OwningPawn)
+    if (StaticMesh && StaticMesh->DoesSocketExist(MuzzleSocketName))
     {
-        // Instigator 없다면 Owner 가져옴
-        OwningPawn = Cast<APawn>(GetOwner());
+        return StaticMesh->GetSocketTransform(MuzzleSocketName);
     }
 
-    if (!OwningPawn) return;
+    return GetActorTransform();
+}
 
-    const float PitchRecoil = -RecoilStrength;
-    const float YawRecoil = FMath::RandRange(-RecoilYawRange, RecoilYawRange);
+FVector ABaseGun::GetMuzzleLocation() const
+{
+    return GetMuzzleTransform().GetLocation();
+}
 
-    OwningPawn->AddControllerPitchInput(PitchRecoil);
-    OwningPawn->AddControllerYawInput(YawRecoil);
+FVector ABaseGun::GetMuzzleForwardVector() const
+{
+    return GetMuzzleTransform().GetRotation().GetForwardVector();
 }

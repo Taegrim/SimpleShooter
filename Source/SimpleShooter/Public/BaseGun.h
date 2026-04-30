@@ -2,9 +2,10 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "GunRecoilData.h"
 #include "BaseGun.generated.h"
 
-
+class UAnimMontage;
 class UNiagaraSystem;
 
 UCLASS()
@@ -18,13 +19,31 @@ public:
 	virtual void Fire();
 	virtual void Reload();
 
+    // 앞에서 설정한 이벤트를 멤버로 가짐
+    UPROPERTY(BlueprintAssignable, Category = "Gun|Recoil")
+    FOnGunRecoil OnGunRecoil;
+
+    UAnimMontage* GetReloadAnim() const;
+
 protected:
     virtual void BeginPlay() override;
 
-    virtual void PlayMuzzleFlash();
-    virtual void PlayFireSound();
-    virtual void PlayReloadSound();
+    void PlayMuzzleFlash();
+    void PlayFireSound();
+    void PlayReloadSound();
+
     virtual void OnFire();
+
+    // 연결한 액터들에게 반동 처리하라고 알리는 함수
+    void BroadcastRecoil();
+
+    // 라인 트레이스 수행
+    void FireLineTrace(const FVector& Start, const FVector& Direction);
+
+    // 총구 트랜스폼 관련
+    FTransform GetMuzzleTransform() const;
+    FVector GetMuzzleLocation() const;
+    FVector GetMuzzleForwardVector() const;
 
 protected:
 	// 컴포넌트
@@ -34,7 +53,7 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Gun|Component")
 	UStaticMeshComponent* StaticMesh;
 
-	// 나이아가라, 사운드
+	// 사격 나이아가라, 사운드
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Gun|Effects")
 	UNiagaraSystem* MuzzleFlash;
 
@@ -63,14 +82,17 @@ protected:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Gun|Effects")
     FName MuzzleSocketName;
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Gun|Recoil")
-    float RecoilStrength;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Gun|Effects")
+    FRotator MuzzleFlashRotationOffset;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Gun|Recoil")
-    float RecoilYawRange;
+    FGunRecoilData RecoilData;
+
+    // 총기 별 재장전 애니메이션
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Gun|Animation")
+    TObjectPtr<UAnimMontage> ReloadAnim;
 
 private:
 	bool CanFire() const;
-    void ApplyRecoil();
 };
 
