@@ -23,7 +23,8 @@ ABaseGun::ABaseGun()
     MuzzleFlashRotationOffset = FRotator(0.f, -90.f, 0.f);
 }
 
-void ABaseGun::Fire()
+// 1인칭 사격은 카메라 방향
+void ABaseGun::FireInDirection(const FVector& Direction)
 {
     if(!CanFire()) return;
 
@@ -35,7 +36,13 @@ void ABaseGun::Fire()
 
     BroadcastRecoil();
 
-    OnFire();
+    OnFireDirection(Direction);
+}
+
+// 3인칭 기본 사격은 총구 방향
+void ABaseGun::Fire()
+{
+    FireInDirection(GetMuzzleForwardVector());
 }
 
 void ABaseGun::Reload()
@@ -96,9 +103,9 @@ void ABaseGun::BeginPlay()
 }
 
 // 공용 사격 처리 함수, LineTrace 한번 호출함
-void ABaseGun::OnFire()
+void ABaseGun::OnFireDirection(const FVector& Direction)
 {
-    FireLineTrace(GetMuzzleLocation(), GetMuzzleForwardVector());
+    FireLineTrace(GetMuzzleLocation(), Direction.GetSafeNormal());
 }
 
 // 연결한 모든 액터에 반동을 처리하라고 알리는 함수

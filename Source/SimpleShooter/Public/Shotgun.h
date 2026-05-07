@@ -13,7 +13,7 @@ public:
     AShotgun();
 
 protected:
-    virtual void OnFire() override;
+    virtual void OnFireDirection(const FVector& Direction) override;
 
 protected:
     // 흩어지는 탄알 개수

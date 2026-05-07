@@ -30,6 +30,10 @@ class ASimpleShooterCharacter : public ACharacter
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Camera, meta = (AllowPrivateAccess = "true"))
 	UCameraComponent* FollowCamera;
 
+    /** 조준용 카메라 */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Camera, meta = (AllowPrivateAccess = "true"))
+    UCameraComponent* AimCamera;
+
 	/** MappingContext */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
 	UInputMappingContext* DefaultMappingContext;
@@ -46,17 +50,25 @@ class ASimpleShooterCharacter : public ACharacter
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
 	UInputAction* LookAction;
 
+    // 총기 발사 액션
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
     UInputAction* FireAction;
 
+    // 재장전 액션
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
     UInputAction* ReloadAction;
 
+    // 1번 슬롯으로 무기 교체 액션
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
     UInputAction* EquipWeaponSlot1Action;
 
+    // 2번 슬롯으로 무기 교체 액션
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
     UInputAction* EquipWeaponSlot2Action;
+
+    // 조준 액션
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
+    UInputAction* AimAction;
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Gun", meta = (AllowPrivateAccess = "true"))
     TArray<TSubclassOf<ABaseGun>> GunClasses;
@@ -69,6 +81,12 @@ class ASimpleShooterCharacter : public ACharacter
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Gun", meta = (AllowPrivateAccess = "true"))
     TObjectPtr<ABaseGun> CurrentGun;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Gun", meta = (AllowPrivateAccess = "true"))
+    bool bIsReloading;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Gun", meta = (AllowPrivateAccess = "true"))
+    bool bIsAiming;
 
 public:
 	ASimpleShooterCharacter();
@@ -83,6 +101,10 @@ protected:
 	/** Called for looking input */
 	void Look(const FInputActionValue& Value);
 
+    // 조준 액션 시작, 끝
+    void Aiming(const FInputActionValue& Value);
+    void StopAiming(const FInputActionValue& Value);
+
     void Fire();
     void Reload();
     void EquipWeaponSlot1();
@@ -91,12 +113,41 @@ protected:
     void SpawnGuns();
     void AttachGunToHand(ABaseGun* Gun);
 
-    //
+    // 에임 카메라로 전환 함수, 토글
+    void ChangeAimCamera(bool Value);
+
+    // 카메라 반동값 추가 함수
+    void AddCameraRecoil(const FGunRecoilData& RecoilData);
+
+    // 카메라 반동 업데이트 함수
+    void UpdateCameraRecoil();
+
+    // 카메라 반동 정리 함수
+    void ClearCameraRecoil();
+
+    // 반동 적용 함수
     UFUNCTION()
     void OnRecoil(const FGunRecoilData& RecoilData);
 
     UFUNCTION()
     void OnReloadMontageEnded(UAnimMontage* Montage, bool bInterrupted);
+
+protected:
+    // 카메라 반동 타이머
+    FTimerHandle CameraRecoilTimerHandle;
+
+    // 적용해야할 반동, 되돌려야 할 반동
+    FVector2D PendingCameraRecoil;
+    FVector2D AppliedCameraRecoil;
+
+    // 반동 적용 간격
+    float CameraRecoilTimerInterval;
+
+    // 반동 적용 속도
+    float CameraRecoilApplySpeed;
+
+    // 반동 회복 속도
+    float CameraRecoilRecoverySpeed;
 
 protected:
     virtual void BeginPlay() override;
@@ -110,8 +161,5 @@ public:
 	FORCEINLINE class USpringArmComponent* GetCameraBoom() const { return CameraBoom; }
 	/** Returns FollowCamera subobject **/
 	FORCEINLINE class UCameraComponent* GetFollowCamera() const { return FollowCamera; }
-
-private:
-    bool bIsReloading;
 };
 

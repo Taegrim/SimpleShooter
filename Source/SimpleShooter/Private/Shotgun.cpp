@@ -4,10 +4,10 @@ AShotgun::AShotgun() : PelletCount(8), SpreadAngle(5.f)
 {
 }
 
-void AShotgun::OnFire()
+void AShotgun::OnFireDirection(const FVector& Direction)
 {
     FVector Start = GetMuzzleLocation();
-    FVector Forward = GetMuzzleForwardVector();
+    FVector Forward = Direction.GetSafeNormal();
 
     float SpreadAngleRadians = FMath::DegreesToRadians(SpreadAngle);
 

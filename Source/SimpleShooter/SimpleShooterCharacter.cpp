@@ -53,7 +53,17 @@ ASimpleShooterCharacter::ASimpleShooterCharacter()
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName); // Attach the camera to the end of the boom and let the boom adjust to match the controller orientation
 	FollowCamera->bUsePawnControlRotation = false; // Camera does not rotate relative to arm
 
+    // 조준용 카메라
+    AimCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("AimCamera"));
+    AimCamera->SetupAttachment(RootComponent); // Attach the camera to the end of the boom and let the boom adjust to match the controller orientation
+    AimCamera->bUsePawnControlRotation = true;
+
+
     bIsReloading = false;
+    bIsAiming = false;
+    CameraRecoilTimerInterval = 0.01f;
+    CameraRecoilApplySpeed = 40.f;
+    CameraRecoilRecoverySpeed = 10.f;
 	// Note: The skeletal mesh and anim blueprint references on the Mesh component (inherited from Character)
 	// are set in the derived blueprint asset named ThirdPersonCharacter (to avoid direct content references in C++)
 }
@@ -72,6 +82,8 @@ void ASimpleShooterCharacter::ApplyReload()
 void ASimpleShooterCharacter::BeginPlay()
 {
     Super::BeginPlay();
+
+    ChangeAimCamera(false);
 
     SpawnGuns();
     EquipWeaponSlot1();
@@ -126,6 +138,13 @@ void ASimpleShooterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerI
 	        EnhancedInputComponent->BindAction(EquipWeaponSlot2Action, ETriggerEvent::Started,
                 this, &ASimpleShooterCharacter::EquipWeaponSlot2);
 	    }
+	    if (AimAction)
+	    {
+	        EnhancedInputComponent->BindAction(AimAction, ETriggerEvent::Started,
+	            this, &ASimpleShooterCharacter::Aiming);
+	        EnhancedInputComponent->BindAction(AimAction, ETriggerEvent::Completed,
+                this, &ASimpleShooterCharacter::StopAiming);
+	    }
 	}
 	else
 	{
@@ -169,13 +188,32 @@ void ASimpleShooterCharacter::Look(const FInputActionValue& Value)
 	}
 }
 
+void ASimpleShooterCharacter::Aiming(const FInputActionValue& Value)
+{
+    bIsAiming = true;
+    ChangeAimCamera(true);
+}
+
+void ASimpleShooterCharacter::StopAiming(const FInputActionValue& Value)
+{
+    bIsAiming = false;
+    ChangeAimCamera(false);
+}
+
 void ASimpleShooterCharacter::Fire()
 {
     if (bIsReloading) return;
 
     if (CurrentGun)
     {
-        CurrentGun->Fire();
+        if (AimCamera && bIsAiming)
+        {
+            CurrentGun->FireInDirection(AimCamera->GetForwardVector());
+        }
+        else
+        {
+            CurrentGun->Fire();
+        }
     }
 }
 
@@ -290,6 +328,103 @@ void ASimpleShooterCharacter::AttachGunToHand(ABaseGun* Gun)
         );
 }
 
+void ASimpleShooterCharacter::ChangeAimCamera(bool Value)
+{
+    if (Value)
+    {
+        FollowCamera->SetActive(false);
+        AimCamera->SetActive(true);
+    }
+    else
+    {
+        FollowCamera->SetActive(true);
+        AimCamera->SetActive(false);
+    }
+}
+
+void ASimpleShooterCharacter::AddCameraRecoil(const FGunRecoilData& RecoilData)
+{
+    if (!bIsAiming) return;
+
+    const float RandomYaw = FMath::RandRange(-RecoilData.Yaw,RecoilData.Yaw);
+
+    PendingCameraRecoil.X -= RecoilData.Pitch * RecoilData.Strength / 3;
+    PendingCameraRecoil.Y += RandomYaw * RecoilData.Strength / 3;
+    CameraRecoilRecoverySpeed = RecoilData.RecoverySpeed;
+
+    if (!GetWorldTimerManager().IsTimerActive(CameraRecoilTimerHandle))
+    {
+        GetWorldTimerManager().SetTimer(
+            CameraRecoilTimerHandle,
+            this,
+            &ASimpleShooterCharacter::UpdateCameraRecoil,
+            CameraRecoilTimerInterval,
+            true
+            );
+    }
+}
+
+void ASimpleShooterCharacter::UpdateCameraRecoil()
+{
+    if (!Controller || !bIsAiming)
+    {
+        ClearCameraRecoil();
+        return;
+    }
+
+    // 한번에 반동 적용할 수치 , 반동 적용 속도 * 간격으로 조정
+    float ApplyStep = CameraRecoilApplySpeed * CameraRecoilTimerInterval;
+
+    // Update 한번에 적용할 반동값 조정
+    FVector2D RecoilToApply;
+    RecoilToApply.X = FMath::Clamp(PendingCameraRecoil.X, -ApplyStep, ApplyStep);
+    RecoilToApply.Y = FMath::Clamp(PendingCameraRecoil.Y, -ApplyStep, ApplyStep);
+
+    // 카메라 흔들고, 반동 적용한 만큼 값 감소
+    // 반동 적용이 남아있다면 return 으로 적용만 하도록 함
+    if (!RecoilToApply.IsNearlyZero())
+    {
+        AddControllerPitchInput(-RecoilToApply.X);
+        AddControllerYawInput(RecoilToApply.Y);
+
+        PendingCameraRecoil -= RecoilToApply;
+        AppliedCameraRecoil += RecoilToApply;
+        return;
+    }
+
+    // 한번에 적용할 반동 회복값
+    float RecoveryStep = CameraRecoilRecoverySpeed * CameraRecoilTimerInterval;
+
+    // Update 한번에 적용할 회복값 조정
+    FVector2D RecoilToRecover;
+    RecoilToRecover.X = FMath::Clamp(AppliedCameraRecoil.X, -RecoveryStep, RecoveryStep);
+    RecoilToRecover.Y = FMath::Clamp(AppliedCameraRecoil.Y, -RecoveryStep, RecoveryStep);
+
+    // 적용 방향과 반대로 수치 조절
+    // 반동 회복이 남아있다면 반동 회복만 하도록 함
+    if (!RecoilToRecover.IsNearlyZero())
+    {
+        AddControllerPitchInput(RecoilToRecover.X);
+        AddControllerYawInput(-RecoilToRecover.Y);
+
+        AppliedCameraRecoil -= RecoilToRecover;
+        return;
+    }
+
+    // 둘다 0에 근접하면 카메라 반동 타이머 제거
+    ClearCameraRecoil();
+}
+
+void ASimpleShooterCharacter::ClearCameraRecoil()
+{
+    // 반동값 초기화
+    PendingCameraRecoil = FVector2D::ZeroVector;
+    AppliedCameraRecoil = FVector2D::ZeroVector;
+
+    // 타이머 정리
+    GetWorldTimerManager().ClearTimer(CameraRecoilTimerHandle);
+}
+
 // 사격 시 반동적용을 위해 호출되는 함수
 void ASimpleShooterCharacter::OnRecoil(const FGunRecoilData& RecoilData)
 {
@@ -310,6 +445,12 @@ void ASimpleShooterCharacter::OnRecoil(const FGunRecoilData& RecoilData)
     Params.RecoilData = RecoilData;
 
     AnimInstace->ProcessEvent(AddRecoilFunction, &Params);
+
+    // 1인칭일땐 카메라까지 흔들기
+    if (bIsAiming)
+    {
+        AddCameraRecoil(RecoilData);
+    }
 }
 
 // 장전 애니메이션이 끝나고 호출되는 함수

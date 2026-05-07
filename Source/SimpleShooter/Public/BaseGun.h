@@ -16,6 +16,8 @@ class SIMPLESHOOTER_API ABaseGun : public AActor
 public:
 	ABaseGun();
 
+    // 지정한 방향으로 사격하는 함수
+    virtual void FireInDirection(const FVector& Direction);
 	virtual void Fire();
 	virtual void Reload();
 
@@ -32,7 +34,7 @@ protected:
     void PlayFireSound();
     void PlayReloadSound();
 
-    virtual void OnFire();
+    virtual void OnFireDirection(const FVector& Direction);
 
     // 연결한 액터들에게 반동 처리하라고 알리는 함수
     void BroadcastRecoil();
