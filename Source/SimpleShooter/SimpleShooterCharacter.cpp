@@ -2,7 +2,7 @@
 
 #include "SimpleShooterCharacter.h"
 
-#include "BaseGun.h"
+#include "Weapon/BaseGun.h"
 #include "Engine/LocalPlayer.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
@@ -11,8 +11,12 @@
 #include "GameFramework/Controller.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
+#include "HealthManager.h"
+#include "HPBarWidget.h"
 #include "InputActionValue.h"
 #include "Animation/AnimInstance.h"
+#include "Components/WidgetComponent.h"
+#include "UObject/ConstructorHelpers.h"
 
 DEFINE_LOG_CATEGORY(LogTemplateCharacter);
 
@@ -58,12 +62,32 @@ ASimpleShooterCharacter::ASimpleShooterCharacter()
     AimCamera->SetupAttachment(RootComponent); // Attach the camera to the end of the boom and let the boom adjust to match the controller orientation
     AimCamera->bUsePawnControlRotation = true;
 
+    // 체력 관리 컴포넌트
+    HealthComponent = CreateDefaultSubobject<UHealthManager>(TEXT("HealthComponent"));
 
+    // 체력 위젯 컴포넌트, 메시에 부착, 머리 위 정도에 배치
+    HPBar = CreateDefaultSubobject<UWidgetComponent>(TEXT("HPBar"));
+    HPBar->SetupAttachment(GetMesh());
+    HPBar->SetRelativeLocation(FVector(0.f, 0.f, 180.f));
+
+    // WBP_HPBar 클래스 찾아와서 위젯 세팅
+    static ConstructorHelpers::FClassFinder<UHPBarWidget> HPBarWidgetClass(TEXT("Game/UI/WBP_HPBar"));
+    if (HPBarWidgetClass.Succeeded())
+    {
+        HPBar->SetWidgetClass(HPBarWidgetClass.Class);
+        HPBar->SetWidgetSpace(EWidgetSpace::Screen);
+        HPBar->SetDrawSize(FVector2D(100.f, 12.f));
+        HPBar->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    }
+
+
+    // 변수 초기화
     bIsReloading = false;
     bIsAiming = false;
     CameraRecoilTimerInterval = 0.01f;
     CameraRecoilApplySpeed = 40.f;
     CameraRecoilRecoverySpeed = 10.f;
+    DeathMontage = nullptr;
 	// Note: The skeletal mesh and anim blueprint references on the Mesh component (inherited from Character)
 	// are set in the derived blueprint asset named ThirdPersonCharacter (to avoid direct content references in C++)
 }
@@ -74,6 +98,22 @@ void ASimpleShooterCharacter::ApplyReload()
     {
         CurrentGun->Reload();
     }
+}
+
+void ASimpleShooterCharacter::EnableRagDoll()
+{
+    USkeletalMeshComponent* MeshComp = GetMesh();
+    if (!MeshComp) return;
+
+    GetCharacterMovement()->DisableMovement();
+    GetCharacterMovement()->StopMovementImmediately();
+
+    GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+    MeshComp->SetCollisionProfileName(TEXT("Ragdoll"));
+    MeshComp->SetSimulatePhysics(true);
+    MeshComp->WakeAllRigidBodies();
+    MeshComp->bBlendPhysics = true;
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -87,6 +127,13 @@ void ASimpleShooterCharacter::BeginPlay()
 
     SpawnGuns();
     EquipWeaponSlot1();
+
+    // 체력 감소시 처리해야할 함수와, 사망시 처리해야할 함수 바인딩
+    if (HealthComponent)
+    {
+        HealthComponent->OnDamaged.AddDynamic(this, &ASimpleShooterCharacter::HandleHealthChanged);
+        HealthComponent->OnDeath.AddDynamic(this, &ASimpleShooterCharacter::HandlePlayerDeath);
+    }
 }
 
 void ASimpleShooterCharacter::NotifyControllerChanged()
@@ -457,4 +504,42 @@ void ASimpleShooterCharacter::OnRecoil(const FGunRecoilData& RecoilData)
 void ASimpleShooterCharacter::OnReloadMontageEnded(UAnimMontage* Montage, bool bInterrupted)
 {
     bIsReloading = false;
+}
+
+void ASimpleShooterCharacter::HandleHealthChanged(float CurrentHealth, float MaxHealth, float ActualDamage)
+{
+    if (!HPBar) return;
+
+    // 위젯 컴포넌트에서 UserWidget을 꺼내서 캐스팅
+    UHPBarWidget* HPBarWidget = Cast<UHPBarWidget>(HPBar->GetUserWidgetObject());
+    if (HPBarWidget)
+    {
+        HPBarWidget->UpdateHPBar(CurrentHealth, MaxHealth);
+    }
+}
+
+void ASimpleShooterCharacter::HandlePlayerDeath(AController* InstigatorActor)
+{
+    // 기존 재장전이나 장전중이면 해제
+    bIsReloading = false;
+    bIsAiming = false;
+
+    ClearCameraRecoil();
+    ChangeAimCamera(false);
+
+    // 사용자 입력 비활성화
+    APlayerController* PlayerController = Cast<APlayerController>(Controller);
+    if (PlayerController)
+    {
+        DisableInput(PlayerController);
+    }
+
+    // 움직임 비활성화
+    GetCharacterMovement()->DisableMovement();
+
+    // 사망 애니메이션 몽타주 재생
+    if (DeathMontage)
+    {
+        PlayAnimMontage(DeathMontage);
+    }
 }

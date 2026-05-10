@@ -5,9 +5,11 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
 #include "Logging/LogMacros.h"
-#include "GunRecoilData.h"
+#include "Weapon/GunRecoilData.h"
 #include "SimpleShooterCharacter.generated.h"
 
+class UWidgetComponent;
+class UHealthManager;
 class ABaseGun;
 class USpringArmComponent;
 class UCameraComponent;
@@ -88,11 +90,28 @@ class ASimpleShooterCharacter : public ACharacter
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Gun", meta = (AllowPrivateAccess = "true"))
     bool bIsAiming;
 
+    // 체력 관리 컴포넌트
+    UPROPERTY(VisibleAnywhere)
+    TObjectPtr<UHealthManager> HealthComponent;
+
+    // 사망 애니메이션 몽타주
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Animation", meta = (AllowPrivateAccess = "true"))
+    TObjectPtr<UAnimMontage> DeathMontage;
+
+    // 체력바 위젯 컴포넌트
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "UI", meta = (AllowPrivateAccess = "true"))
+    TObjectPtr<UWidgetComponent> HPBar;
+
 public:
 	ASimpleShooterCharacter();
 
+    // 재장전 애니메이션 몽타주에서 호출할 실제 재장전 이벤트 함수
     UFUNCTION(BlueprintCallable)
     void ApplyReload();
+
+    // 사망 애니메이션 몽타주에서 호출할 랙돌 적용 함수
+    UFUNCTION(BlueprintCallable)
+    void EnableRagDoll();
 
 protected:
 	/** Called for movement input */
@@ -131,6 +150,14 @@ protected:
 
     UFUNCTION()
     void OnReloadMontageEnded(UAnimMontage* Montage, bool bInterrupted);
+
+    // 체력 변화 시 호출할 델리게이트 이벤트 함수
+    UFUNCTION()
+    void HandleHealthChanged(float CurrentHealth, float MaxHealth, float ActualDamage);
+
+    // 사망 시 호출할 델리게이트 이벤트 함수
+    UFUNCTION()
+    void HandlePlayerDeath(AController* InstigatorActor);
 
 protected:
     // 카메라 반동 타이머

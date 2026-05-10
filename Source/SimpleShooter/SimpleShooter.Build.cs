@@ -15,7 +15,8 @@ public class SimpleShooter : ModuleRules
             "Engine",
             "InputCore",
             "EnhancedInput",
-            "Niagara"
+            "Niagara",
+            "UMG"
         });
 	}
 }

@@ -1,4 +1,4 @@
-#include "Shotgun.h"
+#include "Weapon/Shotgun.h"
 
 AShotgun::AShotgun() : PelletCount(8), SpreadAngle(5.f)
 {

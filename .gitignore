@@ -4,7 +4,8 @@ DerivedDataCache/
 Intermediate/
 Saved/
 Build/
-Content/Characters/lyra
+Content/Characters/lyra/
+Content/AnimStarterPack/
 
 # Visual Studio / Rider / IDE files
 .vs/
